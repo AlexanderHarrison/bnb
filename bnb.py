@@ -12,9 +12,6 @@ import scipy.sparse
 #
 # TODO 
 #
-# Fix duplicate solutions
-# Why are there duplicates?
-#
 # sharpen each node's upper bounds if other problems with 
 # an unsolved node's upper bound is calculated extremely naively
 #
@@ -23,7 +20,8 @@ import scipy.sparse
 # The more sparse A is, the more this is an issue.
 #
 # naive lower bound is cheap to compute. Do something with this?
-
+# Note, upper and lower bounds are thought of opposite as you might expect because we are minimizing
+#    - the most negative some solution could be is the *upper* bound.
 
 
 # Instances of this class will sit in the bnb queue.
@@ -38,7 +36,7 @@ class UnsolvedNode:
     def __init__(self, ties, c):
         self.ties = ties
         #self.lower_bound = np.sum(c[ties == 1])
-        self.upper_bound = np.sum(c[ties != 0])
+        self.upper_bound = np.dot(c, np.abs(ties))
 
     def __lt__(self, other):
         return self.upper_bound < other.upper_bound
@@ -61,13 +59,19 @@ class SolvedNode:
         return np.all(np.trunc(self.x) == self.x)
 
     # generator yielding child UnsolvedNodes
-    def branch(self, A, c, sol_):
+    def branch(self, A, c, k):
+        tie_count = np.sum(self.ties != -1)
+
+        # Guaranteed to find k best solutions at most k nodes deep
+        if tie_count == k:
+            return []
+
         # if all vars are tied then there are no children
-        if np.all(self.ties != -1):
+        if tie_count == len(self.ties):
             return []
 
         # for each nonintegral var, create two subproblems for tying to 0 and 1
-        # then prune by checking if valid.
+        # then prune by checking if best.
         nonintegral_vars = np.trunc(self.x) != self.x
 
         if np.any(nonintegral_vars):
@@ -87,8 +91,8 @@ class SolvedNode:
             # as tying to zero won't ever induce a bounds error
             #print(tie_1_children == 1)
             #print(np.all(np.matmul(tie_1_children == 1, A.transpose()) <= 1, axis=1))
-            valid_children_mask = np.all(np.matmul(tie_1_children == 1, A.transpose()) <= 1, axis=1)
-            tie_1_children = tie_1_children[valid_children_mask]
+            best_children_mask = np.all(np.matmul(tie_1_children == 1, A.transpose()) <= 1, axis=1)
+            tie_1_children = tie_1_children[best_children_mask]
 
             for child_ties in tie_1_children:
                 yield UnsolvedNode(child_ties, c)
@@ -140,24 +144,30 @@ class LPSolver:
 
         self.lp_solver.passModel(self.lp)
         self.lp_solver.run()
-        x = np.array(self.lp_solver.getSolution().col_value)
-
-        assert self.lp_solver.getInfo().valid
+        x = np.abs(np.array(self.lp_solver.getSolution().col_value))
 
         return x, x.dot(self.c)
 
     
 def main():
-    A = np.array([
-        [1,0,1,0,0],
-        [0,1,1,0,1],
-        [1,0,1,1,0],
-    ])
-    c = np.array([-5,-4,-3,-5,-3])
+    from data import A, c
 
-    sols = branch_and_bound(c, A, 3)
+    #A = np.array([
+    #    [1,0,1,0,0],
+    #    [0,1,1,0,1],
+    #    [1,0,1,1,0],
+    #])
+    #c = np.array([-5,-4,-3,-5,-3])
+    
+    import cProfile
+    #cProfile.runctx('sols = branch_and_bound(c, A, 3)', globals(), locals(), sort=True, filename="data.txt")
+    sols = branch_and_bound(c, A, 4)
     for sol in sols:
         print(sol.x, sol.cost)
+
+
+class ExitLoop(Exception):
+    pass
 
 
 def branch_and_bound(c, A, k):
@@ -173,42 +183,77 @@ def branch_and_bound(c, A, k):
     root_ties = np.repeat(-1, c.size).astype(np.int8)
     root_node = UnsolvedNode(root_ties, c)
     
-    valid_sols = []
+    best_sols = []
     test_sol_heap = [root_node]
 
     worst_sol = highspy.kHighsInf
 
+    solved = np.empty((0, num_vars))
+
     i = 0
-    while len(test_sol_heap) > 0:
-        print(f"Iteration: {i}")
-        print("\tUnsolved: ")
-        for sol in test_sol_heap:
-            print('\t\t' + str(sol.ties) + ": " + str(sol.upper_bound))
 
-        print("\tSolved: ")
-        for sol in valid_sols:
-            print('\t\t' + str(sol.x) + ": " + str(sol.cost))
-        i += 1
+    # Python can't break out of nested loops,
+    # so use an exception hack
+    try:
+        while len(test_sol_heap) > 0:
+            test_sol = heapq.heappop(test_sol_heap)
 
-        test_sol = heapq.heappop(test_sol_heap)
-        solved_node = test_sol.solve(lpsolver)
+            # prune unsolved nodes if some solution is a superset of the ties
+            # TODO is this ok?
+            while solved_already(solved, test_sol):
+                if len(test_sol_heap) == 0:
+                    raise ExitLoop()
+                test_sol = heapq.heappop(test_sol_heap)
 
-        if solved_node.integral():
-            if len(valid_sols) < k:
-                worst_sol = max(worst_sol, solved_node.cost)
-                bisect.insort(valid_sols, solved_node)
-            elif test_sol_heap[0].upper_bound < worst_sol:
-                if worst_sol > solved_node.cost:
-                    worst_sol = solved_node.cost
-                    valid_sols.pop()
-                    bisect.insort(valid_sols, solved_node)
-            else:
-                break
+            #print(f"Iteration: {i}")
+            #print(f"Iteration: {i}")
+            #print("\tTesting:\n\t\t" + str(test_sol.ties))
+            #print("\tUnsolved: ")
+            #for sol in test_sol_heap:
+            #    print('\t\t' + str(sol.ties) + ": " + str(sol.upper_bound))
 
-        for child in solved_node.branch(A, c):
-            heapq.heappush(test_sol_heap, child)
+            #print("\tSolved: ")
+            #for sol in best_sols:
+            #    print('\t\t' + str(sol.x) + ": " + str(sol.cost))
+            i += 1
 
-    return valid_sols
+            solved_node = test_sol.solve(lpsolver)
+
+            #print(np.all(np.isin(solved_node.x, solved)))
+            #print(np.all(np.isin(solved, solved_node.x))solved_node.x)
+            if solved_node.integral() and not np.any(np.all(solved == solved_node.x, axis=1)):
+                solved = np.append(solved, solved_node.x[None], axis=0)
+
+                if len(best_sols) < k:
+                    worst_sol = max(worst_sol, solved_node.cost)
+                    bisect.insort(best_sols, solved_node)
+                elif test_sol_heap[0].upper_bound < worst_sol:
+                    if worst_sol > solved_node.cost:
+                        worst_sol = solved_node.cost
+                        best_sols.pop()
+                        bisect.insort(best_sols, solved_node)
+                else:
+                    raise ExitLoop()
+
+            for child in solved_node.branch(A, c, k):
+                heapq.heappush(test_sol_heap, child)
+    except ExitLoop:
+        pass
+    return best_sols
+
+
+def solved_already(solved, test_sol):
+    # A solution is solved already if the tied variables
+    # are equal to the variables in the solution
+    #
+    # i.e. [-1,1,-1,0] would be solved already if [1,1,0,0] was in test_sol
+    # I am not sure that this is valid
+
+    mask = test_sol.ties != -1;
+    tied_vars = test_sol.ties[mask]
+
+    return np.any(np.all(solved[:, mask] == tied_vars, axis=1))
+
 
 if __name__ == "__main__":
     main()
