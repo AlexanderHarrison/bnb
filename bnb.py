@@ -31,24 +31,27 @@ import scipy.sparse
 # and there are no unsolved nodes with upper bounds greater than the worst integral solution,
 # we are done!
 class UnsolvedNode:
-    def __init__(self, ties, c):
+    def __init__(self, ties, c, depth=0):
+        self.depth = depth
         self.ties = ties
-        self.upper_bound = np.dot(c, ties == 1)
+        #self.upper_bound = np.dot(c, ties == 1)
         self.lower_bound = np.dot(c, np.abs(ties))
 
     def __lt__(self, other):
+    #    return self.upper_bound < other.upper_bound
         return self.lower_bound < other.lower_bound
 
     def solve(self, lpsolver):
         x, cost = lpsolver.solve(self.ties)
-        return SolvedNode(x, cost, self.ties)
+        return SolvedNode(x, cost, self.ties, self.depth)
 
 
 class SolvedNode:
-    def __init__(self, x, cost, ties):
+    def __init__(self, x, cost, ties, depth):
         self.x = x
-        self.cost = cost
         self.ties = ties
+        self.cost = cost
+        self.depth = depth
 
     def integral(self):
         return np.all(np.trunc(self.x) == self.x)
@@ -57,14 +60,12 @@ class SolvedNode:
         return self.cost < other.cost
 
     # generator yielding child UnsolvedNodes
-    def branch(self, A, c):
-        tie_count = np.sum(self.ties != -1)
-
+    def branch(self, A, c, k):
         # Guaranteed to find k best solutions at most k nodes deep
-        # NEW: Can't use number of ties as nodes deep anymore...
-        #if tie_count == k:
-        #    return []
+        if self.depth+1 == k:
+            return []
 
+        tie_count = np.sum(self.ties != -1)
         # if all vars are tied then there are no children
         if tie_count == len(self.ties):
             return []
@@ -80,10 +81,12 @@ class SolvedNode:
             child_0_ties = self.ties[first_nonintegral_index] = 0
             child_1_ties = self.ties[first_nonintegral_index] = 1
 
+            # don't increment depth on nonintegral solution
+            # k depth max only applies for integral solutions
             if check_valid(A, child_0_ties):
-                yield UnsolvedNode(child_0_ties, c)
+                yield UnsolvedNode(child_0_ties, c, depth=self.depth) 
             if check_valid(A, child_1_ties):
-                yield UnsolvedNode(child_1_ties, c)
+                yield UnsolvedNode(child_1_ties, c, depth=self.depth)
         else:
             # follow murty-like branching method.
             # i.e.
@@ -99,16 +102,15 @@ class SolvedNode:
             num_vars = self.x.size
             untied_mask = self.ties == -1
 
-            # exercize for the reader
+            # exercise for the reader
             tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_mask]
             invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[untied_mask] & untied_mask
             child_ties = invert_mask_matrix*(1+self.x) + tie_mask_matrix*(2-self.x) + self.ties
 
             child_ties = filter_invalid(A, child_ties)
 
-            # TODO verify children
             for t in child_ties:
-                yield UnsolvedNode(t, c)
+                yield UnsolvedNode(t, c, depth=self.depth+1)
 
 
 class LPSolver:
@@ -157,7 +159,7 @@ def main():
     
     import cProfile
     #cProfile.runctx('sols = branch_and_bound(c, A, 3)', globals(), locals(), sort=True, filename="data.txt")
-    sols = branch_and_bound(c, A, 4)
+    sols = branch_and_bound(c, A, 3)
     for sol in sols:
         print(sol.x, sol.cost)
 
@@ -184,19 +186,18 @@ def branch_and_bound(c, A, k):
     best_sols = []
     test_sol_heap = [root_node]
 
-    worst_sol = 0.0
-
     i = 0
 
     # Python can't break out of nested loops, use an exception hack
     try:
         while len(test_sol_heap) > 0:
             test_sol = heapq.heappop(test_sol_heap)
+            best_sols_full = len(best_sols) == k
 
-            if test_sol.lower_bound > worst_sol:
+            if best_sols_full and test_sol.lower_bound > best_sols[-1].cost:
                 raise ExitLoop()
 
-            #print("\tTesting:\n\t\t" + str(test_sol.ties))
+            #print("\tTesting:\n\t\t" + str(test_sol.ties), test_sol.upper_bound)
             #print("\tUnsolved: ")
             #for sol in test_sol_heap:
             #    print('\t\t' + str(sol.ties) + ": " + str(sol.lower_bound))
@@ -206,22 +207,24 @@ def branch_and_bound(c, A, k):
             #    print('\t\t' + str(sol.x) + ": " + str(sol.cost))
             i += 1
 
-            #if i == 1000:
+            #if i == 10:
             #    raise ExitLoop()
 
             solved_node = test_sol.solve(lpsolver)
 
             if solved_node.integral():
-                worst_sol = max(worst_sol, solved_node.cost)
-                if len(best_sols) == k:
+                if best_sols_full:
                     if best_sols[-1].cost > solved_node.cost:
                         best_sols.pop()
                         bisect.insort(best_sols, solved_node)
                 else:
                     bisect.insort(best_sols, solved_node)
 
-            for child in solved_node.branch(A, c):
-                heapq.heappush(test_sol_heap, child)
+            if solved_node.cost <= best_sols[-1].cost or not best_sols_full:
+                for child in solved_node.branch(A, c, k):
+                    if child.lower_bound < best_sols[-1].cost:
+                        heapq.heappush(test_sol_heap, child)
+
     except ExitLoop:
         pass
 
