@@ -84,9 +84,9 @@ class SolvedNode:
             # don't increment depth on nonintegral solution
             # k depth max only applies for integral solutions
             if check_valid(A, child_0_ties):
-                yield UnsolvedNode(child_0_ties, c, depth=self.depth) 
+                yield UnsolvedNode(child_0_ties, c, self.depth) 
             if check_valid(A, child_1_ties):
-                yield UnsolvedNode(child_1_ties, c, depth=self.depth)
+                yield UnsolvedNode(child_1_ties, c, self.depth)
         else:
             # follow murty-like branching method.
             # i.e.
@@ -110,7 +110,7 @@ class SolvedNode:
             child_ties = filter_invalid(A, child_ties)
 
             for t in child_ties:
-                yield UnsolvedNode(t, c, depth=self.depth+1)
+                yield UnsolvedNode(t, c, self.depth+1)
 
 
 class LPSolver:
@@ -158,10 +158,10 @@ def main():
     #c = np.array([-5,-4,-3,-5,-3])
     
     import cProfile
-    #cProfile.runctx('sols = branch_and_bound(c, A, 3)', globals(), locals(), sort=True, filename="data.txt")
-    sols = branch_and_bound(c, A, 3)
-    for sol in sols:
-        print(sol.x, sol.cost)
+    cProfile.runctx('sols = branch_and_bound(c, A, 3)', globals(), locals(), sort=True, filename="data.txt")
+    #sols = branch_and_bound(c, A, 3)
+    #for sol in sols:
+    #    print(sol.x, sol.cost)
 
 
 class ExitLoop(Exception):
