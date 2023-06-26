@@ -37,8 +37,8 @@ class Node:
         self.depth = depth
 
     def integral(self):
-        #return np.allclose(np.trunc(self.x), self.x)
-        return np.all(np.allclose(self.x, 0.0) or
+        return np.allclose(np.trunc(self.x), self.x)
+        #return np.all(np.allclose(self.x, 0.0) or
 
     def __lt__(self, other):
         return self.cost < other.cost
