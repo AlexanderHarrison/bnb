@@ -71,6 +71,9 @@ class Node:
         #
         # nonintegral vars are set to 0 when 'flipped', 1 otherwise 
 
+kashdkjahskdj
+aksjjdhkasj
+sahdksjhdk
         x_trunc = np.ceil(self.x)
     
         num_vars = x_trunc.size
@@ -181,6 +184,7 @@ def branch_and_bound(c, A, k):
     A = A[np.sum(A, axis=1) > 1] # remove constraints with 1 or less nonzero elements
     A = np.unique(A, axis=0) # make constraints unique
 
+    # slightly slower total
     #subsets = []
     #for i, r1 in enumerate(A):
     #    for j, r2 in enumerate(A):
