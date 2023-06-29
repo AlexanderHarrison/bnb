@@ -8,21 +8,12 @@ import highspy
 import scipy.sparse
 
 # TODO
-# merge with MCMCLinker
 # subspace merging?
 # subspace separating
 
 # Integer linear programming solver
 # Solved for k best solution
 # Minimizes costs
-#
-# sharpen each node's upper bounds if other problems with 
-# an unsolved node's upper bound is calculated extremely naively
-#
-# Better sorting heuristic
-# The current solves waaaay too breadth first (the upper bound is incredibly generous)
-# The more sparse A is, the more this is an issue.
-
 
 # If a solved node's solution is integral, it will be added to the solution list.
 # When we have k integral solutions, 
