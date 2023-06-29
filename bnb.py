@@ -71,18 +71,17 @@ class Node:
         #
         # nonintegral vars are set to 0 when 'flipped', 1 otherwise 
 
-kashdkjahskdj
-aksjjdhkasj
-sahdksjhdk
-        x_trunc = np.ceil(self.x)
+        var_order = np.flip(np.argsort(self.x))
+
+        x_ceil = np.ceil(self.x[var_order])
     
-        num_vars = x_trunc.size
-        untied_mask = self.ties == -1
+        num_vars = self.x.size
+        untied_mask = self.ties[var_order] == -1
 
         # exercise for the reader
         tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_mask]
         invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[untied_mask] & untied_mask
-        child_ties = invert_mask_matrix*(1+x_trunc) + tie_mask_matrix*(2-x_trunc) + self.ties
+        child_ties = invert_mask_matrix*(1+x_ceil) + tie_mask_matrix*(2-x_ceil) + self.ties
 
         # fix edge case where space isn't completely partitioned if last untied element is nonintegral
         last_nontied_idx = np.where(untied_mask)[0][-1]
