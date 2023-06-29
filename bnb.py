@@ -38,7 +38,7 @@ class Node:
 
     def integral(self):
         return np.allclose(np.trunc(self.x), self.x)
-        #return np.all(np.allclose(self.x, 0.0) or
+        #return np.all(np.allclose(self.x, 0.0) | np.allclose(self.x, 1.0))
 
     def __lt__(self, other):
         return self.cost < other.cost
@@ -71,21 +71,15 @@ class Node:
         #
         # nonintegral vars are set to 0 when 'flipped', 1 otherwise 
 
-        x_trunc = np.ceil(self.x)
-    
-        num_vars = x_trunc.size
-        untied_mask = self.ties == -1
+        x_ceil = np.ceil(self.x)
+        num_vars = self.x.size
+
+        untied_nonzero_mask = (self.ties == -1) & (self.x > 0.0)
 
         # exercise for the reader
-        tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_mask]
-        invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[untied_mask] & untied_mask
-        child_ties = invert_mask_matrix*(1+x_trunc) + tie_mask_matrix*(2-x_trunc) + self.ties
-
-        # fix edge case where space isn't completely partitioned if last untied element is nonintegral
-        last_nontied_idx = np.where(untied_mask)[0][-1]
-        last_nontied_element = self.x[last_nontied_idx]
-        if last_nontied_element != 0.0 and last_nontied_element != 1.0:
-            child_ties[-1, last_nontied_idx] = -1
+        tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_nonzero_mask]
+        invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[untied_nonzero_mask] & untied_nonzero_mask
+        child_ties = invert_mask_matrix*(1+x_ceil) + tie_mask_matrix*(2-x_ceil) + self.ties
 
         child_ties = filter_invalid(A, child_ties)
 
@@ -167,10 +161,10 @@ def main():
     #branch_and_bound(c, A, 5)
     #print("time: " + str(time.time() - t))
 
-    cProfile.runctx('for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 2)', globals(), locals(), sort=True, filename="data.txt")
-    #t = time.time()
-    #for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 5)
-    #print(str(time.time() - t))
+    #cProfile.runctx('for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 2)', globals(), locals(), sort=True, filename="data.txt")
+    t = time.time()
+    for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 5)
+    print(str(time.time() - t))
 
     #sols = branch_and_bound(c, A, 10)
     #for sol in sols:
@@ -181,6 +175,7 @@ def branch_and_bound(c, A, k):
     A = A[np.sum(A, axis=1) > 1] # remove constraints with 1 or less nonzero elements
     A = np.unique(A, axis=0) # make constraints unique
 
+    # slightly slower total
     #subsets = []
     #for i, r1 in enumerate(A):
     #    for j, r2 in enumerate(A):
