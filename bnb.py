@@ -195,6 +195,7 @@ def branch_and_bound(c, A, k):
     c = c[sort_idx]
 
     num_constraints, num_vars = A.shape
+    A_csr = scipy.sparse.csr_matrix(A)
 
     if not isinstance(c, np.ndarray) or c.shape != (num_vars,):
         raise ValueError(f"c must be a numpy array of shape ({num_vars},) but found shape {c.shape}")
@@ -213,6 +214,7 @@ def branch_and_bound(c, A, k):
     worst_sol = 0.0
 
     i = 0
+
 
     while len(test_sol_heap) > 0:
         solved_node = heapq.heappop(test_sol_heap)
@@ -245,7 +247,7 @@ def branch_and_bound(c, A, k):
         best_sols_full = len(best_sols) == k
 
         #if solved_node.cost < best_sols[-1].cost or not best_sols_full:
-        for child in solved_node.branch(A, c, k, lpsolver):
+        for child in solved_node.branch(A_csr, c, k, lpsolver):
             i += 1
             if not best_sols_full or child.cost < worst_sol:
                 heapq.heappush(test_sol_heap, child)
@@ -261,7 +263,7 @@ def check_valid(A, t):
     return np.all(np.dot(A, np.maximum(t, 0)) <= 1) and np.any(t == -1)
 
 def filter_invalid(A, potential_ties):
-    mask = np.all(np.matmul(np.maximum(potential_ties, 0), A.T) <= 1, axis=1)
+    mask = np.all(A.dot(np.maximum(potential_ties, 0).T) <= 1, axis=0)
     return potential_ties[mask]
 
 def solved_already(solved, test_sol):
