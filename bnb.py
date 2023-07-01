@@ -21,11 +21,10 @@ import scipy.sparse
 # we are done!
 
 class Node:
-    def __init__(self, x, cost, ties, depth):
+    def __init__(self, x, cost, ties):
         self.x = x
         self.ties = ties
         self.cost = cost
-        self.depth = depth
 
     def integral(self):
         # seems that np.allclose isn't necessary
@@ -40,15 +39,6 @@ class Node:
 
     # generator yielding child UnsolvedNodes
     def branch(self, A, c, k, lpsolver):
-        # Guaranteed to find k best solutions at most k nodes deep
-        if self.depth+1 == k:
-            return []
-
-        tie_count = np.sum(self.ties != -1)
-        # if all vars are tied then there are no children
-        if tie_count == len(self.ties):
-            return []
-
         # follow murty-like branching method.
         # i.e.
         # ties = [-1, -1, -1, 0, -1]
@@ -76,7 +66,7 @@ class Node:
 
         for t in child_ties:
             x, cost = lpsolver.solve(t)
-            yield Node(x, cost, t, self.depth) 
+            yield Node(x, cost, t) 
 
 
 class LPSolver:
@@ -193,7 +183,7 @@ def branch_and_bound(c, A, k):
     root_ties = np.repeat(-1, c.size).astype(np.int8)
 
     root_x, root_cost = lpsolver.solve(root_ties)
-    root_node = Node(root_x, root_cost, root_ties, 0)
+    root_node = Node(root_x, root_cost, root_ties)
     
     best_sols = []
     test_sol_heap = [root_node]
@@ -238,8 +228,10 @@ def branch_and_bound(c, A, k):
             if not best_sols_full or child.cost < worst_sol:
                 heapq.heappush(test_sol_heap, child)
 
+    # undo ordering of variables
     unsort_idx = np.argsort(sort_idx)
-    best_sols = [s.reorder(unsort_idx) for s in best_sols] # undo ordering of variables
+    for s in best_sols:
+        s.reorder(unsort_idx)
 
     print(f"Iterations: {i}")
     return best_sols
