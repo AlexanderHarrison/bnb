@@ -237,25 +237,9 @@ def branch_and_bound(c, A, k):
     return best_sols
 
 
-def check_valid(A, t):
-    return np.all(np.dot(A, np.maximum(t, 0)) <= 1) and np.any(t == -1)
-
 def filter_invalid(A, potential_ties):
     mask = np.all(A.dot(np.maximum(potential_ties, 0).T) <= 1, axis=0)
     return potential_ties[mask]
-
-def solved_already(solved, test_sol):
-    # A solution is solved already if the tied variables
-    # are equal to the variables in the solution
-    #
-    # i.e. [-1,1,-1,0] would be solved already if [1,1,0,0] was in test_sol
-    # I am not sure that this is valid
-
-    mask = test_sol.ties != -1;
-    tied_vars = test_sol.ties[mask]
-
-    return np.any(np.all(solved[:, mask] == tied_vars, axis=1))
-
 
 if __name__ == "__main__":
     main()
