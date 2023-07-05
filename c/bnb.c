@@ -1,106 +1,38 @@
 #include <stdlib.h>
 #include <stdint.h>
-#include <stdbool.h>
+#include <stdio.h>
 #include <math.h>
 
-typedef struct {
-    uint32_t len;
-    float cost;
-    float *x;
-    int32_t *ties;
-} Node;
+#include "node.h"
+#include "heap.h"
+#include "sparse_mat.h"
+#include "solve.h"
 
-typedef struct {
-    uint16_t col;
-    uint16_t row;
-} MatBit;
-
-typedef struct {
-    MatBit *bits;
-    uint32_t bitcount;
-} SparseMat;
-
-typedef struct {
-    int temp;
-} NodeHeap;
-
-inline void dealloc_node(Node *node) {
-    free(node->x);
-}
-
-inline Node alloc_node(uint32_t len) {
-    Node node;
-    float *x = malloc(sizeof *x * len * 2);
-    node.x = x;
-    node.ties = (uint32_t *)(x + len);
-    return node;
-}
-
-inline bool integral(Node node) {
-    for (uint32_t i = 0; i < node.len; ++i) {
-        float v = node.x[i];
-        if ((v != 1.0f) & (v != 0.0f)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-inline bool lt(Node *a, Node *b) {
-    return a->cost < b->cost;
-}
-
-void reorder(Node *node, uint32_t *order) {
-    uint32_t len = node->len;
-    Node node_new = alloc_node(len);
-
-    float *x = node->x;
-    int32_t *ties = node->ties;
-
-    for (uint32_t i = 0; i < len; ++i) {
-        node_new.x[i] = x[order[i]];
-    }
-
-    for (uint32_t i = 0; i < len; ++i) {
-        node_new.ties[i] = ties[order[i]];
-    }
-
-    dealloc_node(node);
-    *node = node_new;
-}
-
-Node *branch(
+void branch(
     Node n, 
-    SparseMat A, 
+    SparseBitMat *A, 
     float *c, 
-    uint32_t k, 
-    uint32_t *scratch,
-    Heap *node_heap,
+    NodeHeap *node_heap
 ) {
+    //print_node(&n);
     uint32_t len = n.len;
     int32_t *ties = n.ties;
     float *x = n.x;
 
-    uint32_t num_untied_nonzero = 0;
-    uint32_t *untied_nonzero_idx = scratch;
-    for (uint32_t i = 0; i < n.len; ++i) {
-        if (ties[i] == -1 && x[i] > 0.0f) {
-            untied_nonzero_idx[num_untied_nonzero] = i;
-            ++num_untied_nonzero;
+    for (uint32_t flip_idx = 0; flip_idx < len; ++flip_idx) {
+        if (ties[flip_idx] != -1 || x[flip_idx] == 0.0f) {
+            continue;
         }
-    }
 
-    for (uint32_t i = 0; i < num_untied_nonzero; ++i) {
         Node child = alloc_node(len);
-        uint32_t flip_idx = untied_nonzero_idx[i];
-
+        child.len = len;
         for (uint32_t j = 0; j < flip_idx; ++j) {
-            uint32_t prev_tied = ties[j];
+            int32_t prev_tied = ties[j];
             if (prev_tied == -1) {
                 if (x[j] == 0.0f) {
-                    child_ties[j] = -1;
+                    child.ties[j] = -1;
                 } else {
-                    child_ties[j] = 1.0f;
+                    child.ties[j] = 1;
                 }
             } else {
                 child.ties[j] = prev_tied;
@@ -110,20 +42,208 @@ Node *branch(
         child.ties[flip_idx] = 0;
 
         for (uint32_t j = flip_idx+1; j < len; ++j) {
-            uint32_t prev_tied = ties[j];
+            int32_t prev_tied = ties[j];
             child.ties[j] = prev_tied;
         }
 
-        // TODO
+        solve_node(A, c, &child);
+        add_to_heap(node_heap, child);
+    }
+}
+
+uint32_t branch_and_bound(
+    float *c, 
+    SparseBitMat *A, 
+    uint32_t k,
+    Node *best_nodes
+) {
+    NodeHeap node_heap = init_heap();
+
+    uint32_t best_nodes_len = 0;
+    float worst_best_node = 0.0f;
+    uint32_t worst_best_idx = 0;
+
+    Node root_node = alloc_node(5);
+    for (uint32_t i = 0; i < 5; ++i) {
+        root_node.ties[i] = -1;
+    }
+    root_node.len = 5;
+
+    solve_node(A, c, &root_node);
+    add_to_heap(&node_heap, root_node);
+
+    while (node_heap.len != 0) {
+        Node node = pop_heap(&node_heap);
+
+        if ((best_nodes_len == k) & (node.cost > worst_best_node)) {
+            break;
+        }
+
+        bool added = false;
+        if (integral(&node)) {
+            added = true;
+
+            if (best_nodes_len == k) {
+                //printf("%f\n", best_nodes[worst_best_idx].cost);
+                //printf("%f\n", node.cost);
+
+                dealloc_node(&best_nodes[worst_best_idx]);
+                best_nodes[worst_best_idx] = node;
+            } else {
+                best_nodes[best_nodes_len] = node;
+                ++best_nodes_len;
+            }
+
+            worst_best_node = best_nodes[0].cost;
+            worst_best_idx = 0;
+            for (uint32_t i = 1; i < best_nodes_len; ++i) {
+                float cost = best_nodes[i].cost;
+                if (cost > worst_best_node) {
+                    worst_best_node = cost;
+                    worst_best_idx = i;
+                }
+            }
+        }
+
+        branch(node, A, c, &node_heap);
+
+        if (!added) {
+            dealloc_node(&node);
+        }
+
     }
 
-    return NULL;
+    dealloc_heap(&node_heap);
+
+    return best_nodes_len;
 }
 
-inline void add_to_heap(NodeHeap *heap, Node node) {
-    // TODO
+int main(void) {
+//int main_old(void) {
+    const float data[15] = {
+        0.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+        0.0f, 1.0f, 1.0f, 0.0f, 1.0f,
+        1.0f, 0.0f, 0.0f, 1.0f, 0.0f
+    };
+
+    float c[5] = {-5.4f, -5.0f, -5.0f, -5.0f, -4.0f};
+    SparseBitMat A = init_sparse_bit_mat(5, 3, data);
+    uint32_t k = 5;
+
+    Node *best_nodes = malloc(sizeof *best_nodes * k);
+
+    uint32_t num_solved = branch_and_bound(c, &A, k, best_nodes);
+    printf("%d solved\n", num_solved);
+
+    for (uint32_t i = 0; i < num_solved; ++i) {
+        float *x = best_nodes[i].x;
+        printf("[");
+        for (uint32_t x_i = 0; x_i < 4; ++x_i) {
+            printf("%.2f ", x[x_i]);
+        }
+        printf("%.2f] %.2f\n", x[4], best_nodes[i].cost);
+    }
+
+    return 0;
 }
 
-inline void solve_node(Node *node) {
-    // TODO
+//int main(void) {
+int main_test_heap(void) {
+    Node a = alloc_node(5);
+    Node b = alloc_node(5);
+    Node c = alloc_node(5);
+    a.cost = 1.0f;
+    b.cost = 2.0f;
+    c.cost = 3.0f;
+
+    NodeHeap node_heap = init_heap();
+    add_to_heap(&node_heap, c);
+    add_to_heap(&node_heap, a);
+    add_to_heap(&node_heap, b);
+
+    printf("%d\n", node_heap.len);
+    printf("%d\n", node_heap.capacity);
+
+    printf("%f\n", pop_heap(&node_heap).cost);
+    printf("%f\n", pop_heap(&node_heap).cost);
+    printf("%f\n", pop_heap(&node_heap).cost);
+
+    return 0;
+}
+
+//int main(void) {
+int main_test_solve(void) {
+    const float data[15] = {
+        0.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+        0.0f, 1.0f, 1.0f, 0.0f, 1.0f,
+        1.0f, 0.0f, 0.0f, 1.0f, 0.0f
+    };
+
+    float c[5] = {-5.4f, -5.0f, -5.0f, -5.0f, -4.0f};
+    SparseBitMat A = init_sparse_bit_mat(5, 3, data);
+
+    int32_t ties[5] = {1, -1, 0, -1, -1};
+    Node node = alloc_node(5);
+    node.ties = ties;
+    node.len = 5;
+    solve_node(&A, c, &node);
+
+    float *x = node.x;
+    printf("[");
+    for (uint32_t x_i = 0; x_i < 4; ++x_i) {
+        printf("%.2f ", x[x_i]);
+    }
+    printf("%.2f] %.2f\n", x[4], node.cost);
+
+    return 0;
+}
+
+//int main(void) {
+int main_test_mul(void) {
+    const float data[15] = {
+        0.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+        0.0f, 1.0f, 1.0f, 0.0f, 1.0f,
+        1.0f, 0.0f, 0.0f, 1.0f, 0.0f
+    };
+
+    SparseBitMat A = init_sparse_bit_mat(5, 3, data);
+
+    float x[5] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+    float result[3];
+
+    mat_vec_mul(&A, x, result);
+
+    printf("%f\n", result[0]);
+    printf("%f\n", result[1]);
+    printf("%f\n", result[2]);
+
+    return 0;
+}
+
+int main_test_branch(void) {
+//int main(void) {
+    const float data[15] = {
+        0.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+        0.0f, 1.0f, 1.0f, 0.0f, 1.0f,
+        1.0f, 0.0f, 0.0f, 1.0f, 0.0f
+    };
+
+    float c[5] = {-5.4f, -5.0f, -5.0f, -5.0f, -4.0f};
+    SparseBitMat A = init_sparse_bit_mat(5, 3, data);
+
+    int32_t ties[5] = {-1, -1, -1, -1, -1};
+    Node node = alloc_node(5);
+    node.ties = ties;
+    node.len = 5;
+    solve_node(&A, c, &node);
+
+    NodeHeap node_heap = init_heap();
+
+    branch(node, &A, c, &node_heap);
+
+    for (uint32_t i = 0; i < node_heap.len; ++i) {
+        print_node(&node_heap.data[i]);
+    }
+
+    return 0;
 }
