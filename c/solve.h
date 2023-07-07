@@ -19,7 +19,7 @@ float get_cost(uint32_t x, uint32_t width, const float *c) {
     return cost;
 }
 
-bool check_valid(const SparseBitMat *A, uint32_t x, const int32_t *ties, const float *scratch) {
+bool check_valid(const SparseBitMat *A, uint32_t x, const int32_t *ties, float *scratch) {
     uint32_t width = A->width;
     uint32_t height = A->height;
 
@@ -70,4 +70,3 @@ void solve_node(SparseBitMat *A, const float *c, Node *node) {
 
     free(scratch);
 }
-
