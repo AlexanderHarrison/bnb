@@ -24,7 +24,7 @@ SparseBitMat init_sparse_bit_mat(uint32_t width, uint32_t height, const float* r
         }
     }
 
-    MatBit *bits = malloc(sizeof *bits * bitcount);
+    MatBit *bits = (MatBit *)malloc(sizeof *bits * bitcount);
 
     uint32_t bitnum = 0;
     for (uint32_t i = 0; i < len; ++i) {

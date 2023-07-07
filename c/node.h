@@ -16,7 +16,7 @@ void dealloc_node(Node *node) {
     free(node->x);
 }
 
-void print_node(Node *node) {
+void print_node(const Node *node) {
     float *x = node->x;
     int32_t *ties = node->ties;
     uint32_t last = node->len - 1;
@@ -35,13 +35,13 @@ void print_node(Node *node) {
 
 Node alloc_node(uint32_t len) {
     Node node;
-    float *x = malloc(sizeof *x * len * 2);
+    float *x = (float*)malloc(sizeof *x * len * 2);
     node.x = x;
     node.ties = (int32_t *)(x + len);
     return node;
 }
 
-bool integral(Node *node) {
+bool integral(const Node *node) {
     float *x = node->x;
     uint32_t len = node->len;
 
@@ -54,7 +54,7 @@ bool integral(Node *node) {
     return true;
 }
 
-void reorder(Node *node, uint32_t *order) {
+void reorder(Node *node, const uint32_t *order) {
     uint32_t len = node->len;
     Node node_new = alloc_node(len);
 

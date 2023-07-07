@@ -16,7 +16,7 @@ NodeHeap init_heap() {
     NodeHeap heap;
     heap.len = 0;
     heap.capacity = 16;
-    heap.data = malloc(sizeof(Node) * 16);
+    heap.data = (Node*)malloc(sizeof(Node) * 16);
 
     return heap;
 }
@@ -36,7 +36,7 @@ void add_to_heap(NodeHeap *heap, Node node) {
 
     if (len == capacity) {
         uint32_t new_capacity = capacity * 2;
-        heap->data = realloc(heap->data, new_capacity);
+        heap->data = (Node*)realloc(heap->data, new_capacity);
         heap->capacity = new_capacity;
     }
 

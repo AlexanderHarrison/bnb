@@ -6,15 +6,7 @@
 
 #include "node.h"
 #include "sparse_mat.h"
-
-#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c"
-#define BYTE_TO_BINARY(byte)  \
-  ((byte) & 0x01 ? '1' : '0'), \
-  ((byte) & 0x02 ? '1' : '0'), \
-  ((byte) & 0x04 ? '1' : '0'), \
-  ((byte) & 0x08 ? '1' : '0'), \
-  ((byte) & 0x10 ? '1' : '0')
-
+#include "Highs.h"
 
 float get_cost(uint32_t x, uint32_t width, const float *c) {
     float cost = 0.0f;
@@ -27,7 +19,7 @@ float get_cost(uint32_t x, uint32_t width, const float *c) {
     return cost;
 }
 
-bool check_valid(SparseBitMat *A, uint32_t x, int32_t *ties, float *scratch) {
+bool check_valid(const SparseBitMat *A, uint32_t x, const int32_t *ties, const float *scratch) {
     uint32_t width = A->width;
     uint32_t height = A->height;
 
@@ -55,7 +47,7 @@ void solve_node(SparseBitMat *A, const float *c, Node *node) {
     uint32_t height = A->height;
     uint32_t itercount = 1 << width;
 
-    float *scratch = malloc(sizeof *scratch * height);
+    float *scratch = (float*)malloc(sizeof *scratch * height);
 
     uint32_t best_sol = 0;
     float best_cost = 0.0f;
