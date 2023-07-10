@@ -14,4 +14,4 @@ $(HIGHSLIB): HiGHS/src/Highs.h
 
 HiGHS/src/Highs.h:
 	git clone --depth 1 --branch v1.5.3 https://github.com/ERGO-Code/HiGHS.git
-	cmake -S HiGHS -B HiGHS/build
+	cmake -DBUILD_SHARED_LIBS=OFF -S HiGHS -B HiGHS/build
