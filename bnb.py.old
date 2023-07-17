@@ -2,12 +2,23 @@ import time
 import math
 import heapq
 import bisect
-import multiprocessing
-import queue
 
 import numpy as np
 import highspy
 import scipy.sparse
+
+# TODO
+# subspace merging?
+# subspace separating
+
+# Integer linear programming solver
+# Solved for k best solution
+# Minimizes costs
+
+# If a solved node's solution is integral, it will be added to the solution list.
+# When we have k integral solutions, 
+# and there are no unsolved nodes with upper bounds greater than the worst integral solution,
+# we are done!
 
 class Node:
     def __init__(self, x, cost, ties):
@@ -17,7 +28,7 @@ class Node:
 
     def integral(self):
         # seems that np.allclose isn't necessary
-        return np.allclose(np.trunc(self.x), self.x)
+        return np.all(np.trunc(self.x) == self.x)
 
     def __lt__(self, other):
         return self.cost < other.cost
@@ -27,7 +38,7 @@ class Node:
         self.x = self.x[idxs]
 
     # generator yielding child UnsolvedNodes
-    def branch(self, A, c, k):
+    def branch(self, A, c, k, lpsolver):
         # follow murty-like branching method.
         # i.e.
         # ties = [-1, -1, -1, 0, -1]
@@ -45,7 +56,6 @@ class Node:
         num_vars = self.x.size
 
         untied_nonzero_mask = (self.ties == -1) & (self.x > 0.0)
-        print("branch count: " + str(np.sum(untied_nonzero_mask)))
 
         # exercise for the reader
         tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_nonzero_mask]
@@ -54,17 +64,19 @@ class Node:
 
         child_ties = filter_invalid(A, child_ties)
 
-        return child_ties
+        for t in child_ties:
+            x, cost = lpsolver.solve(t)
+            yield Node(x, cost, t) 
 
 
 class LPSolver:
-    def __init__(self, c, A_csc):
+    def __init__(self, c, A):
         self.lp_solver = highspy.Highs()
         self.lp = highspy.HighsLp()
         self.c = c
         self.lp_solver.setOptionValue("log_to_console", False)
 
-        num_constraints, num_vars = A_csc.shape
+        num_constraints, num_vars = A.shape
         inf = highspy.kHighsInf
 
         self.lp.num_col_ = num_vars;
@@ -77,6 +89,7 @@ class LPSolver:
         self.lp.col_lower_ = np.repeat(0, num_vars)
         self.lp.col_upper_ = np.repeat(1, num_vars)
 
+        A_csc = scipy.sparse.csc_matrix(A)
         self.lp.a_matrix_.start_ = A_csc.indptr
         self.lp.a_matrix_.index_ = A_csc.indices
         self.lp.a_matrix_.value_ = A_csc.data
@@ -87,30 +100,28 @@ class LPSolver:
     def solve(self, ties):
         self.lp.col_lower_ = ties == 1
         self.lp.col_upper_ = ties != 0
-        self.lp.integrality_ = np.repeat(highspy.HighsVarType.kInteger, ties.size)
 
         self.lp_solver.passModel(self.lp)
+        #numvars = len(ties)
+        #self.lp_solver.changeColsBounds(
+        #    numvars,
+        #    np.arange(numvars), 
+        #    (ties == 1).astype(np.double), 
+        #    (ties != 0).astype(np.double)
+        #)
         self.lp_solver.run()
         x = np.abs(np.array(self.lp_solver.getSolution().col_value))
 
         return x, x.dot(self.c)
 
-    # returns (x, cost)
-    def lower_bound(self, ties):
-        self.lp.col_lower_ = ties == 1
-        self.lp.col_upper_ = ties != 0
-        self.lp.integrality_ = np.repeat(highspy.HighsVarType.kContinuous, ties.size)
-
-        self.lp_solver.passModel(self.lp)
-        self.lp_solver.run()
-        x = np.abs(np.array(self.lp_solver.getSolution().col_value))
-
-        return x.dot(self.c)
-
     
 def main():
     import cProfile
     from data import A, c
+
+    for data in A:
+        if np.any(np.all(data == 0, axis=0)):
+            print("zero col!")
 
     #A = (np.random.random((411, 189)) < 0.037).astype(np.uint8)
     #A = (np.random.random((411, 189)) < 0.037).astype(np.uint8)
@@ -127,6 +138,8 @@ def main():
 
     #cProfile.runctx('sols = branch_and_bound(c, A, 3)', globals(), locals(), sort=True, filename="data.txt")
 
+    #c = c[0]
+    #A = A[0]
     #t = time.time()
     #branch_and_bound(c, A, 5)
     #print("time: " + str(time.time() - t))
@@ -140,29 +153,19 @@ def main():
     #for sol in sols:
     #    print(sol.x, sol.cost)
 
-def init_solver(c, A_csc):
-    global lp
-    lp = LPSolver(c, A_csc)
-
-def solve_lp(t):
-    return lp.lower_bound(t)
-
-def solve_milp(tie_q, child_q, c, A_csc):
-    lp = LPSolver(c, A_csc)
-    while True:
-        t = tie_q.get()
-        x, cost = lp.solve(t)
-        node = Node(x, cost, t) 
-        child_q.put(node)
-
-def test(q, t, c, A_csc):
-    lp = LPSolver(c, A_csc)
-    x, cost = lp.solve(t)
-    node = Node(x, cost, t) 
-    q.put(node)
 
 def branch_and_bound(c, A, k):
     A = A[np.sum(A, axis=1) > 1] # remove constraints with 1 or less nonzero elements
+    A = np.unique(A, axis=0) # make constraints unique
+
+    # slightly slower total
+    #subsets = []
+    #for i, r1 in enumerate(A):
+    #    for j, r2 in enumerate(A):
+    #        if not i == j and np.all(r1 <= r2):
+    #            subsets.append(i)
+    #A = np.delete(A, subsets, axis=0)
+
     # sort costs from smallest to largest
     # murty constrains the first columns more than the last, so sorting this way tends to constrain better solutions 
     sort_idx = np.argsort(c)
@@ -172,36 +175,17 @@ def branch_and_bound(c, A, k):
     num_constraints, num_vars = A.shape
     A_csr = scipy.sparse.csr_matrix(A)
 
-    def remove_duplicate_rows(data): # np.unique for sparse matrices
-        unique_row_indices, unique_columns = [], []
-        for row_idx, row in enumerate(data):
-            indices = row.indices.tolist()
-            if indices not in unique_columns:
-                unique_columns.append(indices)
-                unique_row_indices.append(row_idx)
-        return data[unique_row_indices]
-    A_csr = remove_duplicate_rows(A_csr)
-    A_csc = scipy.sparse.csc_matrix(A_csr)
-
     if not isinstance(c, np.ndarray) or c.shape != (num_vars,):
         raise ValueError(f"c must be a numpy array of shape ({num_vars},) but found shape {c.shape}")
 
     if not np.all((A == 0) | (A == 1)):
         raise ValueError("A must only contain 0 or 1")
 
-    lpsolver = LPSolver(c, A_csc)
+    lpsolver = LPSolver(c, A)
     root_ties = np.repeat(-1, c.size).astype(np.int8)
-    #root_x, root_cost = lpsolver.solve(root_ties)
 
-    q = multiprocessing.Queue()
-    t = multiprocessing.Process(target=test, args=(q, root_ties, c, A_csc))
-    t.start()
-    t.join()
-    root_node = q.get()
-    q.close()
-    q.join_thread()
-
-    #root_node = Node(root_x, root_cost, root_ties)
+    root_x, root_cost = lpsolver.solve(root_ties)
+    root_node = Node(root_x, root_cost, root_ties)
     
     if root_node.integral():
         best_sols = [root_node]
@@ -210,13 +194,13 @@ def branch_and_bound(c, A, k):
         best_sols = []
         worst_sol = 0.0
     test_sol_heap = [root_node]
-    i = 1
+
+    i = 0
 
     while len(test_sol_heap) > 0:
         solved_node = heapq.heappop(test_sol_heap)
 
-        best_sols_full = len(best_sols) == k
-        if best_sols_full and solved_node.cost >= worst_sol:
+        if len(best_sols) == k and solved_node.cost > worst_sol:
             break
 
         #print("\tTesting:\n\t\t" + str(solved_node.x) + str(solved_node.ties), solved_node.cost)
@@ -229,73 +213,15 @@ def branch_and_bound(c, A, k):
         #    print('\t\t' + str(sol.x) + str(sol.ties), str(sol.cost))
         #print()
 
-        ties = solved_node.branch(A_csr, c, k)
-
-        print("getting lower bounds for {0} children".format(len(ties)))
-        with multiprocessing.Pool(initializer=init_solver, initargs=(c, A_csc)) as pool:
-            lower_bounds = pool.map(solve_lp, ties)
-
-        print("solving children")
-        tie_q = multiprocessing.Queue()
-        child_q = multiprocessing.Queue()
-        threads = [
-            multiprocessing.Process(target=solve_milp, args=(tie_q, child_q, c, A_csc)) 
-            for _ in range(multiprocessing.cpu_count())
-        ]
-
-        try: 
-            for t in threads:
-                t.start()
-
-            lb_iter = zip(ties, lower_bounds)
-
-            children_left = 0
-            pushed = 0
-            for _ in range(multiprocessing.cpu_count()):
-                try:
-                    t, _ = next(lb_iter)
-                    tie_q.put(t)
-                    children_left += 1
-                    pushed += 1
-                    print("{0} / {1}".format(pushed, len(ties)))
-                except StopIteration:
-                    pass
-
-            
-            finished = False
-            while children_left != 0 or not finished:
-                child = child_q.get()
-                children_left -= 1
-
-                try:
-                    while not tie_q.full():
-                        t, lb = next(lb_iter)
-                        pushed += 1
-                        print("{0} / {1}".format(pushed, len(ties)))
-                        if len(best_sols) != k or lb < worst_sol:
-                            tie_q.put(t)
-                            children_left += 1
-                            break
-                except StopIteration:
-                    finished = True
-                    pass
-
-                i += 1
-                if len(best_sols) != k or child.cost < worst_sol:
+        for child in solved_node.branch(A_csr, c, k, lpsolver):
+            i += 1
+            if len(best_sols) != k or child.cost < worst_sol:
+                heapq.heappush(test_sol_heap, child)
+                if child.integral():
                     if len(best_sols) == k:
                         best_sols.pop()
                     bisect.insort(best_sols, child)
                     worst_sol = best_sols[-1].cost
-                    heapq.heappush(test_sol_heap, child)
-
-            for t in threads:
-                t.terminate()
-                t.join()
-        except KeyboardInterrupt:
-            for t in threads:
-                t.terminate()
-            raise KeyboardInterrupt
-
 
     # undo ordering of variables
     unsort_idx = np.argsort(sort_idx)

@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.9.4)
 project(bnb)
 
 set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/install)
+set(CMAKE_C_COMPILER gcc)
+set(CMAKE_CXX_COMPILER g++)
 
 include(ExternalProject)
 ExternalProject_Add(HiGHS
@@ -17,7 +19,6 @@ set(HIGHS_INCLUDE_DIR ${SOURCE_DIR}/src)
 
 ExternalProject_Get_Property(HiGHS BINARY_DIR)
 set(HIGHS_LIBRARY_DIR ${BINARY_DIR}/lib)
-
 
 add_executable(bnb c/bnb.cpp)
 
