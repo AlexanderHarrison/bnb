@@ -123,6 +123,15 @@ def main():
         if np.any(np.all(data == 0, axis=0)):
             print("zero col!")
 
+    A = A[0]
+    c = c[0]
+    t = time.time()
+    sols = branch_and_bound(c, A, 50)
+    print("time: " + str(time.time() - t))
+    for sol in sols:
+        print(sol.cost)
+
+
     #A = (np.random.random((411, 189)) < 0.037).astype(np.uint8)
     #A = (np.random.random((411, 189)) < 0.037).astype(np.uint8)
 
@@ -145,9 +154,9 @@ def main():
     #print("time: " + str(time.time() - t))
 
     #cProfile.runctx('for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 2)', globals(), locals(), sort=True, filename="data.txt")
-    t = time.time()
-    for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 5)
-    print(str(time.time() - t))
+    #t = time.time()
+    #for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 5)
+    #print(str(time.time() - t))
 
     #sols = branch_and_bound(c, A, 10)
     #for sol in sols:
