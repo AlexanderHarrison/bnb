@@ -139,7 +139,6 @@ def main():
     for sol in sols:
         print(sol.cost)
 
-
     #cProfile.runctx('for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 2)', globals(), locals(), sort=True, filename="data.txt")
     #t = time.time()
     #for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 5)
@@ -164,7 +163,7 @@ def solve_milp(tie_q, child_q, c, A_csc):
         node = Node(x, cost, t) 
         child_q.put(node)
 
-def test(q, t, c, A_csc):
+def root_solve(q, t, c, A_csc):
     lp = LPSolver(c, A_csc)
     x, cost = lp.solve(t)
     node = Node(x, cost, t) 
@@ -201,9 +200,12 @@ def branch_and_bound(c, A, k):
     lpsolver = LPSolver(c, A_csc)
     root_ties = np.repeat(-1, c.size).astype(np.int8)
     #root_x, root_cost = lpsolver.solve(root_ties)
+    #root_node = Node(root_x, root_cost, root_ties)
 
+    # for some reason milp deadlocks unless this is solved on another thread...
+    # probably some weirdness in HiGHS
     q = multiprocessing.Queue()
-    t = multiprocessing.Process(target=test, args=(q, root_ties, c, A_csc))
+    t = multiprocessing.Process(target=root_solve, args=(q, root_ties, c, A_csc))
     t.start()
     t.join()
     root_node = q.get()
@@ -215,7 +217,7 @@ def branch_and_bound(c, A, k):
         worst_sol = root_node.cost
     else:
         best_sols = []
-        worst_sol = 0.0
+        worst_sol = 1.0
     test_sol_heap = [root_node]
     i = 1
 
