@@ -103,16 +103,17 @@ class LPSolver:
 
         self.lp_solver.passModel(self.lp)
         self.lp_solver.run()
-        x = np.abs(np.array(self.lp_solver.getSolution().col_value))
-
-        return x, x.dot(self.c)
+        sol = self.lp_solver.getSolution()
+        x = np.abs(np.array(sol.col_value))
+        col_dual = np.array(sol.col_dual)
+        return x, x.dot(self.c), col_dual
 
     
 def main():
-    import cProfile
+    #import cProfile
     from data import A, c
-    #A = A[0]
-    #c = c[0]
+    A = A[0]
+    c = c[0]
 
     #mats = np.load("large_mats.npy.npz")
     #A = mats["A"]
@@ -133,16 +134,16 @@ def main():
 
     #cProfile.runctx('sols = branch_and_bound(c, A, 3)', globals(), locals(), sort=True, filename="data.txt")
 
-    #t = time.time()
-    #sols = branch_and_bound(c, A, 50)
-    #print("time: " + str(time.time() - t))
-    #for sol in sols:
-    #    print(sol.cost)
+    t = time.time()
+    sols = branch_and_bound(c, A, 20)
+    print("time: " + str(time.time() - t))
+    for sol in sols:
+        print(sol.cost)
 
     #cProfile.runctx('for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 2)', globals(), locals(), sort=True, filename="data.txt")
-    t = time.time()
-    for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 5)
-    print(str(time.time() - t))
+    #t = time.time()
+    #for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 5)
+    #print(str(time.time() - t))
 
     #sols = branch_and_bound(c, A, 10)
     #for sol in sols:
@@ -153,7 +154,8 @@ def init_solver(c, A_csc):
     lp = LPSolver(c, A_csc)
 
 def solve_lp(t):
-    return lp.lower_bound(t)[1]
+    _, lb, _ = lp.lower_bound(t)
+    return lb
 
 def solve_milp(tie_q, child_q, c, A_csc):
     lp = LPSolver(c, A_csc)
@@ -170,6 +172,7 @@ def root_solve(q, t, c, A_csc):
     q.put(node)
 
 def branch_and_bound(c, A, k):
+    multiprocessing.set_start_method("spawn")
     A = A[np.sum(A, axis=1) > 1] # remove constraints with 1 or less nonzero elements
     # sort costs from smallest to largest
     # murty constrains the first columns more than the last, so sorting this way tends to constrain better solutions 
@@ -199,18 +202,18 @@ def branch_and_bound(c, A, k):
 
     lpsolver = LPSolver(c, A_csc)
     root_ties = np.repeat(-1, c.size).astype(np.int8)
-    #root_x, root_cost = lpsolver.solve(root_ties)
-    #root_node = Node(root_x, root_cost, root_ties)
+    root_x, root_cost = lpsolver.solve(root_ties)
+    root_node = Node(root_x, root_cost, root_ties)
 
     # for some reason milp deadlocks unless this is solved on another thread...
     # probably some weirdness in HiGHS
-    q = multiprocessing.Queue()
-    t = multiprocessing.Process(target=root_solve, args=(q, root_ties, c, A_csc))
-    t.start()
-    t.join()
-    root_node = q.get()
-    q.close()
-    q.join_thread()
+    #q = multiprocessing.Queue()
+    #t = multiprocessing.Process(target=root_solve, args=(q, root_ties, c, A_csc))
+    #t.start()
+    #t.join()
+    #root_node = q.get()
+    #q.close()
+    #q.join_thread()
 
     if root_node.integral():
         best_sols = [root_node]
@@ -221,40 +224,45 @@ def branch_and_bound(c, A, k):
     test_sol_heap = [root_node]
     i = 1
 
-    while len(test_sol_heap) > 0:
-        solved_node = heapq.heappop(test_sol_heap)
+    tie_q = multiprocessing.Queue()
+    child_q = multiprocessing.Queue()
+    threads = [
+        multiprocessing.Process(target=solve_milp, args=(tie_q, child_q, c, A_csc)) 
+        for _ in range(multiprocessing.cpu_count())
+    ]
 
-        if len(best_sols) == k and solved_node.cost >= worst_sol:
-            break
+    lb_pool = multiprocessing.Pool(initializer=init_solver, initargs=(c, A_csc))
 
-        #print("\tTesting:\n\t\t" + str(solved_node.x) + str(solved_node.ties), solved_node.cost)
-        #print("\tUnchecked: ")
-        #for sol in test_sol_heap:
-        #    print('\t\t' + str(sol.x) + str(sol.ties), str(sol.cost))
+    for t in threads:
+        t.start()
+    try: 
+        while len(test_sol_heap) > 0:
+            solved_node = heapq.heappop(test_sol_heap)
 
-        #print("\tSolved: ")
-        #for sol in best_sols:
-        #    print('\t\t' + str(sol.x) + str(sol.ties), str(sol.cost))
-        #print()
+            if len(best_sols) == k and solved_node.cost >= worst_sol:
+                break
 
-        ties = solved_node.branch(A_csr, c, k)
+            #print("\tTesting:\n\t\t" + str(solved_node.x) + str(solved_node.ties), solved_node.cost)
+            #print("\tUnchecked: ")
+            #for sol in test_sol_heap:
+            #    print('\t\t' + str(sol.x) + str(sol.ties), str(sol.cost))
 
-        print("getting lower bounds for {0} children".format(len(ties)))
-        with multiprocessing.Pool(initializer=init_solver, initargs=(c, A_csc)) as pool:
-            lb = pool.map(solve_lp, ties)
+            #print("\tSolved: ")
+            #for sol in best_sols:
+            #    print('\t\t' + str(sol.x) + str(sol.ties), str(sol.cost))
+            #print()
 
-        print("solving children")
-        tie_q = multiprocessing.Queue()
-        child_q = multiprocessing.Queue()
-        threads = [
-            multiprocessing.Process(target=solve_milp, args=(tie_q, child_q, c, A_csc)) 
-            for _ in range(multiprocessing.cpu_count())
-        ]
+            ties = solved_node.branch(A_csr, c, k)
 
-        try: 
-            for t in threads:
-                t.start()
+            print("getting lower bounds for {0} children".format(len(ties)))
+            #lb, col_duals = zip(*lb_pool.map(solve_lp, ties))
+            lb = np.array(lb_pool.map(solve_lp, ties))
 
+            lb_reorder = np.argsort(lb)
+            lb = lb[lb_reorder]
+            ties = ties[lb_reorder]
+
+            print("solving children")
             lb_iter = zip(ties, lb)
 
             children_left = 0
@@ -269,7 +277,6 @@ def branch_and_bound(c, A, k):
                     print("{0} / {1}".format(pushed, len(ties)), end="\r")
                 except StopIteration:
                     break
-
             
             finished = False
             while children_left != 0 or not finished:
@@ -296,14 +303,16 @@ def branch_and_bound(c, A, k):
                     bisect.insort(best_sols, child)
                     worst_sol = best_sols[-1].cost
                     heapq.heappush(test_sol_heap, child)
-
-            for t in threads:
-                t.terminate()
-                t.join()
-        except KeyboardInterrupt:
-            for t in threads:
-                t.terminate()
-            raise KeyboardInterrupt
+    except KeyboardInterrupt:
+        for t in threads:
+            t.terminate()
+        lb_pool.terminate()
+        raise KeyboardInterrupt
+    for t in threads:
+        t.terminate()
+        t.join()
+    lb_pool.terminate()
+    lb_pool.join()
 
 
     # undo ordering of variables
