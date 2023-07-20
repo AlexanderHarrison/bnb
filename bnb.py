@@ -44,7 +44,7 @@ class Node:
         x_ceil = np.ceil(self.x)
         num_vars = self.x.size
 
-        untied_nonzero_mask = (self.ties == -1) & (self.x > 0.0)
+        untied_nonzero_mask = (self.ties == -1) & ~np.isclose(self.x, 0.0)
         print("branch count: " + str(np.sum(untied_nonzero_mask)))
 
         # exercise for the reader
@@ -111,8 +111,8 @@ class LPSolver:
 def main():
     import cProfile
     from data import A, c
-    A = A[0]
-    c = c[0]
+    #A = A[0]
+    #c = c[0]
 
     #mats = np.load("large_mats.npy.npz")
     #A = mats["A"]
@@ -133,16 +133,16 @@ def main():
 
     #cProfile.runctx('sols = branch_and_bound(c, A, 3)', globals(), locals(), sort=True, filename="data.txt")
 
-    t = time.time()
-    sols = branch_and_bound(c, A, 50)
-    print("time: " + str(time.time() - t))
-    for sol in sols:
-        print(sol.cost)
+    #t = time.time()
+    #sols = branch_and_bound(c, A, 50)
+    #print("time: " + str(time.time() - t))
+    #for sol in sols:
+    #    print(sol.cost)
 
     #cProfile.runctx('for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 2)', globals(), locals(), sort=True, filename="data.txt")
-    #t = time.time()
-    #for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 5)
-    #print(str(time.time() - t))
+    t = time.time()
+    for A1, c1 in zip(A, c): branch_and_bound(c1, A1, 5)
+    print(str(time.time() - t))
 
     #sols = branch_and_bound(c, A, 10)
     #for sol in sols:
@@ -239,91 +239,71 @@ def branch_and_bound(c, A, k):
 
         ties = solved_node.branch(A_csr, c, k)
 
-        if False:
-        #if len(ties) < 100:
-            for t in ties:
-                if len(best_sols) != k:
-                    x, cost = lpsolver.solve(t)
-                    child = Node(x, cost, t)
+        print("getting lower bounds for {0} children".format(len(ties)))
+        with multiprocessing.Pool(initializer=init_solver, initargs=(c, A_csc)) as pool:
+            lb = pool.map(solve_lp, ties)
+
+        print("solving children")
+        tie_q = multiprocessing.Queue()
+        child_q = multiprocessing.Queue()
+        threads = [
+            multiprocessing.Process(target=solve_milp, args=(tie_q, child_q, c, A_csc)) 
+            for _ in range(multiprocessing.cpu_count())
+        ]
+
+        try: 
+            for t in threads:
+                t.start()
+
+            lb_iter = zip(ties, lb)
+
+            children_left = 0
+            pushed = 0
+            # fill tie queue
+            for _ in range(multiprocessing.cpu_count()):
+                try:
+                    t, _ = next(lb_iter)
+                    tie_q.put(t)
+                    children_left += 1
+                    pushed += 1
+                    print("{0} / {1}".format(pushed, len(ties)), end="\r")
+                except StopIteration:
+                    break
+
+            
+            finished = False
+            while children_left != 0 or not finished:
+                child = child_q.get()
+                children_left -= 1
+
+                try:
+                    while not tie_q.full():
+                        t, lb = next(lb_iter)
+                        pushed += 1
+                        print("{0} / {1}".format(pushed, len(ties)), end="\r")
+                        if len(best_sols) != k or lb < worst_sol:
+                            tie_q.put(t)
+                            children_left += 1
+                            break
+                except StopIteration:
+                    finished = True
+                    pass
+
+                i += 1
+                if len(best_sols) != k or child.cost < worst_sol:
+                    if len(best_sols) == k:
+                        best_sols.pop()
                     bisect.insort(best_sols, child)
                     worst_sol = best_sols[-1].cost
                     heapq.heappush(test_sol_heap, child)
-                else:
-                    x, lb = lpsolver.lower_bound(t)
-                    if lb < worst_sol:
-                        x, cost = lpsolver.solve(t)
-                        child = Node(x, cost, t)
-                        if child.cost < worst_sol:
-                            best_sols.pop()
-                            bisect.insort(best_sols, child)
-                            worst_sol = best_sols[-1].cost
-                            heapq.heappush(test_sol_heap, child)
-        else: # same process, with threading
-            print("getting lower bounds for {0} children".format(len(ties)))
-            with multiprocessing.Pool(initializer=init_solver, initargs=(c, A_csc)) as pool:
-                lb = pool.map(solve_lp, ties)
 
-            print("solving children")
-            tie_q = multiprocessing.Queue()
-            child_q = multiprocessing.Queue()
-            threads = [
-                multiprocessing.Process(target=solve_milp, args=(tie_q, child_q, c, A_csc)) 
-                for _ in range(multiprocessing.cpu_count())
-            ]
-
-            try: 
-                for t in threads:
-                    t.start()
-
-                lb_iter = zip(ties, lb)
-
-                children_left = 0
-                pushed = 0
-                # fill tie queue
-                for _ in range(multiprocessing.cpu_count()):
-                    try:
-                        t, _ = next(lb_iter)
-                        tie_q.put(t)
-                        children_left += 1
-                        pushed += 1
-                        print("{0} / {1}".format(pushed, len(ties)))
-                    except StopIteration:
-                        break
-
-                
-                finished = False
-                while children_left != 0 or not finished:
-                    child = child_q.get()
-                    children_left -= 1
-
-                    try:
-                        while not tie_q.full():
-                            t, lb = next(lb_iter)
-                            pushed += 1
-                            print("{0} / {1}".format(pushed, len(ties)))
-                            if len(best_sols) != k or lb < worst_sol:
-                                tie_q.put(t)
-                                children_left += 1
-                                break
-                    except StopIteration:
-                        finished = True
-                        pass
-
-                    i += 1
-                    if len(best_sols) != k or child.cost < worst_sol:
-                        if len(best_sols) == k:
-                            best_sols.pop()
-                        bisect.insort(best_sols, child)
-                        worst_sol = best_sols[-1].cost
-                        heapq.heappush(test_sol_heap, child)
-
-                for t in threads:
-                    t.terminate()
-                    t.join()
-            except KeyboardInterrupt:
-                for t in threads:
-                    t.terminate()
-                raise KeyboardInterrupt
+            for t in threads:
+                t.terminate()
+                t.join()
+        except KeyboardInterrupt:
+            for t in threads:
+                t.terminate()
+            raise KeyboardInterrupt
 
 
     # undo ordering of variables
