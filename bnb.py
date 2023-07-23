@@ -106,14 +106,17 @@ class LPSolver:
         sol = self.lp_solver.getSolution()
         x = np.abs(np.array(sol.col_value))
         col_dual = np.array(sol.col_dual)
+        print(dir(self.lp))
+        exit()
+        print(x, ties, col_dual, x.dot(self.c))
         return x, x.dot(self.c), col_dual
 
     
 def main():
     #import cProfile
-    from data import A, c
-    A = A[0]
-    c = c[0]
+    #from data import A, c
+    #A = A[0]
+    #c = c[0]
 
     #mats = np.load("large_mats.npy.npz")
     #A = mats["A"]
@@ -122,12 +125,12 @@ def main():
     #A = (np.random.random((411, 189)) < 0.037).astype(np.uint8)
     #A = (np.random.random((411, 189)) < 0.037).astype(np.uint8)
 
-    #A = np.array([
-    #    [0,1,0,1,1],
-    #    [0,1,1,0,1],
-    #    [1,0,0,1,0],
-    #])
-    #c = np.array([-5.4,-5,-5,-5,-4])
+    A = np.array([
+        [0,1,0,1,1],
+        [0,1,1,0,1],
+        [1,0,0,1,0],
+    ])
+    c = np.array([-5.4,-5,-5,-5,-4])
     #for sol in branch_and_bound(c, A, 10):
     #    print(sol.x, sol.cost)
     #exit()
@@ -253,6 +256,8 @@ def branch_and_bound(c, A, k):
             #print()
 
             ties = solved_node.branch(A_csr, c, k)
+            if len(ties) == 0:
+                continue;
 
             print("getting lower bounds for {0} children".format(len(ties)))
             #lb, col_duals = zip(*lb_pool.map(solve_lp, ties))
