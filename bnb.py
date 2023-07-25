@@ -27,21 +27,45 @@ class Node:
         self.x = self.x[idxs]
 
     # returns a np array of ties
-    def branch(self, A, c, k):
+    def branch(self, A):
         x_ceil = np.ceil(self.x)
         num_vars = self.x.size
 
-        untied_nonzero_mask = (self.ties == -1) & ~np.isclose(self.x, 0.0)
+        ordering = np.argsor()
+
+        zero_mask = np.isclose(self.x, 0.0)
+        set_mask = np.isclose(self.x, 1.0)
+        untied_mask = self.ties == -1
+        untied_nonzero_mask = untied_mask & ~zero_mask
         #print("branch count: " + str(np.sum(untied_nonzero_mask)))
 
-        # exercise for the reader
-        tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_nonzero_mask]
-        invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[untied_nonzero_mask] & untied_nonzero_mask
+        untied_set_mask = untied_mask & set_mask
+        untied_noninteger_mask = untied_nonzero_mask & ~set_mask
+
+        print(untied_noninteger_mask)
+
+        tie_mask_matrix = np.concatenate((
+            np.identity(num_vars, dtype=np.uint8)[untied_noninteger_mask],
+            np.identity(num_vars, dtype=np.uint8)[untied_set_mask],
+        ))
+        print(tie_mask_matrix)
+        invert_mask_matrix = np.concatenate((
+            np.tri(num_vars, k=-1, dtype=np.uint8)[untied_noninteger_mask],
+            np.tri(num_vars, k=-1, dtype=np.uint8)[untied_set_mask],
+        )) & untied_nonzero_mask
+        print(invert_mask_matrix)
+
+        #tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_nonzero_mask]
+        #invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[untied_nonzero_mask] & untied_nonzero_mask
         child_ties = invert_mask_matrix*(1+x_ceil) + tie_mask_matrix*(2-x_ceil) + self.ties
+
+        # exercise for the reader
+        #tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_nonzero_mask]
+        #invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[untied_nonzero_mask] & untied_nonzero_mask
+        #child_ties = invert_mask_matrix*(1+x_ceil) + tie_mask_matrix*(2-x_ceil) + self.ties
 
         child_ties = filter_invalid(A, child_ties)
         return child_ties
-
 
 class LPSolver:
     def __init__(self, c, A_csc):
@@ -120,9 +144,19 @@ def main():
     #A = A[0]
     #c = c[0]
 
-    mats = np.load("large_mats.npy.npz")
-    A = mats["A"]
-    c = mats["c"]
+    #x = np.array([1,1,0,0,1,0.5, 0.5, 1, 0, 0.5])
+    x = np.array([1,0,0,0.5, 0.5])
+    #x = np.array([1,0.5])
+    cost = 0
+    ties = np.repeat(-1, len(x))
+    n = Node(x, cost, ties)
+    A = np.repeat(0, len(x))[None]
+    print(n.branch(A))
+    return
+
+    #mats = np.load("large_mats.npy.npz")
+    #A = mats["A"]
+    #c = mats["c"]
 
     #A = (np.random.random((411, 189)) < 0.037).astype(np.uint8)
     #A = (np.random.random((411, 189)) < 0.037).astype(np.uint8)
@@ -152,10 +186,14 @@ def main():
     #                print(s1.cost, s2.cost)
     #            return
 
+    #A1 = A
+    #c1 = c
     A1 = A[:, :1900]
     c1 = c[:1900]
     t = time.time()
-    sols1 = branch_and_bound_lp(c1, A1, 1)
+    sols1 = branch_and_bound_lp(c1, A1, 20)
+    print(str(time.time() - t))
+    return
 
     print(f"{c.size} vars")
     for s in range(1000, 5778, 100):
@@ -202,7 +240,7 @@ def branch_and_bound_lp(c, A, k):
     sort_idx, c, A_csr, A_csc = presolve(c, A)
     lpsolver = LPSolver(c, A_csc)
     root_ties = np.repeat(-1, c.size).astype(np.int8)
-    root_x, root_cost, _ = lpsolver.solve(root_ties)
+    root_x, root_cost = lpsolver.solve_int(root_ties)
     root_node = Node(root_x, root_cost, root_ties)
 
     if root_node.integral():
@@ -214,23 +252,40 @@ def branch_and_bound_lp(c, A, k):
     test_sol_heap = [root_node]
     i = 1
 
+    nonint_count = np.repeat(0, c.size)
+
     while len(test_sol_heap) > 0:
+        print(f"{i}:")
+        print("\tto process: {} / {}".format(str(sum(1 if x.cost < worst_sol else 0 for x in test_sol_heap)), len(test_sol_heap)))
+        #print("num nonintegral: " + str(np.sum(~np.isclose(x, 0.0) & ~np.isclose(x, 1.0))))
+        print("\tbest sols num: " + str(len(best_sols)))
+        print("\tworst sol: " + str(worst_sol))
+        #print("tie count: " + str(np.sum(t != -1)))
+        print("\tint locations: " + str(np.sum(nonint_count == 0)))
+
+            
         solved_node = heapq.heappop(test_sol_heap)
 
         if len(best_sols) == k and solved_node.cost >= worst_sol:
             break
 
-        ties = solved_node.branch(A_csr, c, k)
+        ties = solved_node.branch(A_csr)
         if len(ties) == 0:
             continue;
 
+        prune_count = 0
+        num_nonint = 0
         for t in ties:
             x, cost, _ = lpsolver.solve(t)
-            print("num nonintegral: " + str(np.sum(~np.isclose(x, 0.0) & ~np.isclose(x, 1.0))))
-            print("best_sols_num: " + str(len(best_sols)))
+
+            nonint = ~(np.isclose(x, 0.0) | np.isclose(x, 1.0))
+            nonint_count += nonint
+            if np.any(nonint != 0.0):
+                num_nonint += 1
             i += 1
             child = Node(x, cost, t)
             if len(best_sols) == k and cost >= worst_sol:
+                prune_count += 1
                 continue
 
             if child.integral():
@@ -239,6 +294,8 @@ def branch_and_bound_lp(c, A, k):
                 bisect.insort(best_sols, child)
                 worst_sol = best_sols[-1].cost
             heapq.heappush(test_sol_heap, child)
+        print("\tprune count: {} / {}".format(str(prune_count), len(ties)))
+        print("\tnonint children: {} / {}".format(str(num_nonint), len(ties)))
 
     # undo ordering of variables
     unsort_idx = np.argsort(sort_idx)
@@ -320,7 +377,7 @@ def branch_and_bound_small(c, A, k):
         if len(best_sols) == k and solved_node.cost >= worst_sol:
             break
 
-        ties = solved_node.branch(A_csr, c, k)
+        ties = solved_node.branch(A_csr)
         if len(ties) == 0:
             continue;
 
@@ -397,7 +454,7 @@ Use `multiprocessing.set_start_method("spawn")` to set.
             if len(best_sols) == k and solved_node.cost >= worst_sol:
                 break
 
-            ties = solved_node.branch(A_csr, c, k)
+            ties = solved_node.branch(A_csr)
             if len(ties) == 0:
                 continue;
 
