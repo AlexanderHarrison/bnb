@@ -31,7 +31,7 @@ class Node:
         x_ceil = np.ceil(self.x)
         num_vars = self.x.size
 
-        ordering = np.argsor()
+        #ordering = np.argsor()
 
         zero_mask = np.isclose(self.x, 0.0)
         set_mask = np.isclose(self.x, 1.0)
@@ -39,30 +39,26 @@ class Node:
         untied_nonzero_mask = untied_mask & ~zero_mask
         #print("branch count: " + str(np.sum(untied_nonzero_mask)))
 
-        untied_set_mask = untied_mask & set_mask
-        untied_noninteger_mask = untied_nonzero_mask & ~set_mask
+        #untied_set_mask = untied_mask & set_mask
+        #untied_noninteger_mask = untied_nonzero_mask & ~set_mask
 
-        print(untied_noninteger_mask)
+        #print(untied_noninteger_mask)
 
-        tie_mask_matrix = np.concatenate((
-            np.identity(num_vars, dtype=np.uint8)[untied_noninteger_mask],
-            np.identity(num_vars, dtype=np.uint8)[untied_set_mask],
-        ))
-        print(tie_mask_matrix)
-        invert_mask_matrix = np.concatenate((
-            np.tri(num_vars, k=-1, dtype=np.uint8)[untied_noninteger_mask],
-            np.tri(num_vars, k=-1, dtype=np.uint8)[untied_set_mask],
-        )) & untied_nonzero_mask
-        print(invert_mask_matrix)
-
-        #tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_nonzero_mask]
-        #invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[untied_nonzero_mask] & untied_nonzero_mask
-        child_ties = invert_mask_matrix*(1+x_ceil) + tie_mask_matrix*(2-x_ceil) + self.ties
+        #tie_mask_matrix = np.concatenate((
+        #    np.identity(num_vars, dtype=np.uint8)[untied_noninteger_mask],
+        #    np.identity(num_vars, dtype=np.uint8)[untied_set_mask],
+        #))
+        #print(tie_mask_matrix)
+        #invert_mask_matrix = np.concatenate((
+        #    np.tri(num_vars, k=-1, dtype=np.uint8)[untied_noninteger_mask],
+        #    np.tri(num_vars, k=-1, dtype=np.uint8)[untied_set_mask],
+        #)) & untied_nonzero_mask
+        #print(invert_mask_matrix)
 
         # exercise for the reader
-        #tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_nonzero_mask]
-        #invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[untied_nonzero_mask] & untied_nonzero_mask
-        #child_ties = invert_mask_matrix*(1+x_ceil) + tie_mask_matrix*(2-x_ceil) + self.ties
+        tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_nonzero_mask]
+        invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[untied_nonzero_mask] & untied_nonzero_mask
+        child_ties = invert_mask_matrix*(1+x_ceil) + tie_mask_matrix*(2-x_ceil) + self.ties
 
         child_ties = filter_invalid(A, child_ties)
         return child_ties
@@ -144,19 +140,19 @@ def main():
     #A = A[0]
     #c = c[0]
 
-    #x = np.array([1,1,0,0,1,0.5, 0.5, 1, 0, 0.5])
-    x = np.array([1,0,0,0.5, 0.5])
-    #x = np.array([1,0.5])
-    cost = 0
-    ties = np.repeat(-1, len(x))
-    n = Node(x, cost, ties)
-    A = np.repeat(0, len(x))[None]
-    print(n.branch(A))
-    return
+    ##x = np.array([1,1,0,0,1,0.5, 0.5, 1, 0, 0.5])
+    #x = np.array([1,0,0,0.5, 0.5])
+    ##x = np.array([1,0.5])
+    #cost = 0
+    #ties = np.repeat(-1, len(x))
+    #n = Node(x, cost, ties)
+    #A = np.repeat(0, len(x))[None]
+    #print(n.branch(A))
+    #return
 
-    #mats = np.load("large_mats.npy.npz")
-    #A = mats["A"]
-    #c = mats["c"]
+    mats = np.load("large_mats.npy.npz")
+    A = mats["A"]
+    c = mats["c"]
 
     #A = (np.random.random((411, 189)) < 0.037).astype(np.uint8)
     #A = (np.random.random((411, 189)) < 0.037).astype(np.uint8)
@@ -188,23 +184,23 @@ def main():
 
     #A1 = A
     #c1 = c
-    A1 = A[:, :1900]
-    c1 = c[:1900]
-    t = time.time()
-    sols1 = branch_and_bound_lp(c1, A1, 20)
-    print(str(time.time() - t))
-    return
-
-    print(f"{c.size} vars")
-    for s in range(1000, 5778, 100):
-        #print(f"iter: {s}")
-        A1 = A[:, :s]
-        c1 = c[:s]
-        t = time.time()
-        sols1 = branch_and_bound_lp(c1, A1, 20)
-        print(str(time.time() - t))
+    #A1 = A[:, :1900]
+    #c1 = c[:1900]
+    #t = time.time()
+    #sols1 = branch_and_bound_lp(c1, A1, 20)
+    #print(str(time.time() - t))
     #return
-    print("small time")
+
+    #print(f"{c.size} vars")
+    #for s in range(1000, 5778, 100):
+    #    #print(f"iter: {s}")
+    #    A1 = A[:, :s]
+    #    c1 = c[:s]
+    #    t = time.time()
+    #    sols1 = branch_and_bound_lp(c1, A1, 20)
+    #    print(str(time.time() - t))
+    ##return
+    #print("small time")
     #for s in range(1000, 5778, 100):
     #    A1 = A[:, :s]
     #    c1 = c[:s]
@@ -255,13 +251,13 @@ def branch_and_bound_lp(c, A, k):
     nonint_count = np.repeat(0, c.size)
 
     while len(test_sol_heap) > 0:
-        print(f"{i}:")
-        print("\tto process: {} / {}".format(str(sum(1 if x.cost < worst_sol else 0 for x in test_sol_heap)), len(test_sol_heap)))
-        #print("num nonintegral: " + str(np.sum(~np.isclose(x, 0.0) & ~np.isclose(x, 1.0))))
-        print("\tbest sols num: " + str(len(best_sols)))
-        print("\tworst sol: " + str(worst_sol))
-        #print("tie count: " + str(np.sum(t != -1)))
-        print("\tint locations: " + str(np.sum(nonint_count == 0)))
+        #print(f"{i}:")
+        #print("\tto process: {} / {}".format(str(sum(1 if x.cost < worst_sol else 0 for x in test_sol_heap)), len(test_sol_heap)))
+        ##print("num nonintegral: " + str(np.sum(~np.isclose(x, 0.0) & ~np.isclose(x, 1.0))))
+        #print("\tbest sols num: " + str(len(best_sols)))
+        #print("\tworst sol: " + str(worst_sol))
+        ##print("tie count: " + str(np.sum(t != -1)))
+        #print("\tint locations: " + str(np.sum(nonint_count == 0)))
 
             
         solved_node = heapq.heappop(test_sol_heap)
@@ -294,8 +290,8 @@ def branch_and_bound_lp(c, A, k):
                 bisect.insort(best_sols, child)
                 worst_sol = best_sols[-1].cost
             heapq.heappush(test_sol_heap, child)
-        print("\tprune count: {} / {}".format(str(prune_count), len(ties)))
-        print("\tnonint children: {} / {}".format(str(num_nonint), len(ties)))
+        #print("\tprune count: {} / {}".format(str(prune_count), len(ties)))
+        #print("\tnonint children: {} / {}".format(str(num_nonint), len(ties)))
 
     # undo ordering of variables
     unsort_idx = np.argsort(sort_idx)
@@ -387,6 +383,7 @@ def branch_and_bound_small(c, A, k):
                 child = Node(x, cost, t)
                 bisect.insort(best_sols, child)
                 worst_sol = best_sols[-1].cost
+                heapq.heappush(test_sol_heap, child)
             else:
                 i += 1
                 x, lower_bound, _ = lpsolver.solve(t)
@@ -469,7 +466,6 @@ Use `multiprocessing.set_start_method("spawn")` to set.
             lb_iter = zip(ties, lb)
 
             children_left = 0
-            pushed = 0
             #print("solving children")
 
             try:
@@ -478,31 +474,30 @@ Use `multiprocessing.set_start_method("spawn")` to set.
                     t, _ = next(lb_iter)
                     tie_q.put(t)
                     children_left += 1
-                    pushed += 1
-                    print("{0} / {1}".format(pushed, len(ties)), end="\r")
-                
-                while children_left != 0 or not finished:
-                    i += 1
-                    child = child_q.get()
-                    children_left -= 1
-
-                    while not tie_q.full():
-                        t, lb = next(lb_iter)
-                        pushed += 1
-                        print("{0} / {1}".format(pushed, len(ties)), end="\r")
-                        if len(best_sols) != k or lb < worst_sol:
-                            tie_q.put(t)
-                            children_left += 1
-                            break
-
-                    if len(best_sols) != k or child.cost < worst_sol:
-                        if len(best_sols) == k:
-                            best_sols.pop()
-                        bisect.insort(best_sols, child)
-                        worst_sol = best_sols[-1].cost
-                        heapq.heappush(test_sol_heap, child)
+                    #print("{0} / {1}".format(pushed, len(ties)), end="\r")
             except StopIteration:
                 pass
+                
+            while children_left != 0:
+                i += 1
+                child = child_q.get()
+                children_left -= 1
+
+                try:
+                    t, lb = next(lb_iter)
+                    while len(best_sols) == k and lb >= worst_sol:
+                        t, lb = next(lb_iter)
+                    tie_q.put(t)
+                    children_left += 1
+                except StopIteration:
+                    pass
+
+                if len(best_sols) != k or child.cost < worst_sol:
+                    if len(best_sols) == k:
+                        best_sols.pop()
+                    bisect.insort(best_sols, child)
+                    worst_sol = best_sols[-1].cost
+                heapq.heappush(test_sol_heap, child)
     except KeyboardInterrupt:
         for t in threads:
             t.terminate()
