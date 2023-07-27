@@ -1,5 +1,4 @@
 import time
-import math
 import heapq
 import bisect
 import multiprocessing
@@ -27,38 +26,43 @@ class Node:
         self.x = self.x[idxs]
 
     # returns a np array of ties
-    def branch(self, A):
+    def branch(self, A, nonints_first = False):
         x_ceil = np.ceil(self.x)
         num_vars = self.x.size
 
-        #ordering = np.argsor()
-
         zero_mask = np.isclose(self.x, 0.0)
         set_mask = np.isclose(self.x, 1.0)
+
         untied_mask = self.ties == -1
-        untied_nonzero_mask = untied_mask & ~zero_mask
-        #print("branch count: " + str(np.sum(untied_nonzero_mask)))
+        tie_mask = untied_mask & ~zero_mask
+        #print("branch count: " + str(np.sum(tie_mask)))
+        
+        if nonints_first:
+            #print(self.ties)
+            # tie nonints before ones
+            ordering = np.concatenate((
+                np.where(untied_mask & set_mask),
+                np.where(untied_mask & ~(set_mask | zero_mask)),
+                np.where(zero_mask | (~untied_mask & set_mask))
+            ), axis=1)[0]
+            #ordering = np.argsort(set_mask * 2 + ~(set_mask | zero_mask))
+            rev_ordering = np.argsort(ordering)
+            tie_mask = tie_mask[ordering]
+            x_ceil = x_ceil[ordering]
+            ties = self.ties[ordering]
+        else:
+            ties = self.ties
 
         #untied_set_mask = untied_mask & set_mask
-        #untied_noninteger_mask = untied_nonzero_mask & ~set_mask
-
-        #print(untied_noninteger_mask)
-
-        #tie_mask_matrix = np.concatenate((
-        #    np.identity(num_vars, dtype=np.uint8)[untied_noninteger_mask],
-        #    np.identity(num_vars, dtype=np.uint8)[untied_set_mask],
-        #))
-        #print(tie_mask_matrix)
-        #invert_mask_matrix = np.concatenate((
-        #    np.tri(num_vars, k=-1, dtype=np.uint8)[untied_noninteger_mask],
-        #    np.tri(num_vars, k=-1, dtype=np.uint8)[untied_set_mask],
-        #)) & untied_nonzero_mask
-        #print(invert_mask_matrix)
+        #untied_noninteger_mask = tie_mask & ~set_mask
 
         # exercise for the reader
-        tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[untied_nonzero_mask]
-        invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[untied_nonzero_mask] & untied_nonzero_mask
-        child_ties = invert_mask_matrix*(1+x_ceil) + tie_mask_matrix*(2-x_ceil) + self.ties
+        tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[tie_mask]
+        invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[tie_mask] & tie_mask
+        child_ties = invert_mask_matrix*(1+x_ceil) + tie_mask_matrix*(2-x_ceil) + ties
+
+        if nonints_first:
+            child_ties = child_ties[:, rev_ordering]
 
         child_ties = filter_invalid(A, child_ties)
         return child_ties
@@ -124,10 +128,6 @@ class LPSolver:
         self.lp_solver.passModel(self.lp)
         self.lp_solver.run()
         sol = self.lp_solver.getSolution()
-        
-        #spx = self.lp_solver.getInfo().simplex_iteration_count
-        #if spx != 0:
-        #    print("spx: " + str(spx))
         x = np.abs(np.array(sol.col_value))
         col_dual = np.array(sol.col_dual)
         return x, x.dot(self.c), col_dual
@@ -137,8 +137,20 @@ def main():
     multiprocessing.set_start_method("spawn")
     import cProfile
     #from data import A, c
-    #A = A[0]
-    #c = c[0]
+
+    #x = np.array([1,1,0,0,1,0.5, 0.5, 1, 0, 0.5])
+    #cost = 0
+    #ties = np.repeat(-1, len(x))
+    #n = Node(x, cost, ties)
+    #A  = np.repeat(0, len(x))[None]
+    #print(x)
+    #print(n.branch(A, nonint_first = True))
+
+    #for A1, c1 in zip(A, c):
+    #    sols1 = branch_and_bound_lp(c1, A1, 3, nonint_first=False)
+    #    sols2 = branch_and_bound_lp(c1, A1, 3, nonint_first=True)
+    #    for s1, s2 in zip(sols1, sols2):
+    #        print(s1.cost == s2.cost)
 
     ##x = np.array([1,1,0,0,1,0.5, 0.5, 1, 0, 0.5])
     #x = np.array([1,0,0,0.5, 0.5])
@@ -170,10 +182,11 @@ def main():
     #cProfile.runctx('sols = branch_and_bound_small(c, A, 100)', globals(), locals(), sort=True, filename="data.txt")
 
     #for s in range(10, 1000, 10):
+    #    print(s)
     #    A1 = A[:s]
     #    c1 = c[:s]
     #    t = time.time()
-    #    sols1 = branch_and_bound_lp(c1, A1, 20)
+    #    sols1 = branch_and_bound_lp(c1, A1, 20, nonints_first = True)
     #    sols2 = branch_and_bound_small(c1, A1, 20)
     #    for s1, s2 in zip(sols1, sols2):
     #        if ~np.isclose(s1.cost, s2.cost):
@@ -184,12 +197,12 @@ def main():
 
     #A1 = A
     #c1 = c
-    #A1 = A[:, :1900]
-    #c1 = c[:1900]
-    #t = time.time()
-    #sols1 = branch_and_bound_lp(c1, A1, 20)
-    #print(str(time.time() - t))
-    #return
+    A1 = A[:, :1900]
+    c1 = c[:1900]
+    t = time.time()
+    sols1 = branch_and_bound_lp(c1, A1, 20)
+    print(str(time.time() - t))
+    return
 
     #print(f"{c.size} vars")
     #for s in range(1000, 5778, 100):
@@ -232,7 +245,7 @@ def main():
     #for sol in sols:
     #    print(sol.x, sol.cost)
 
-def branch_and_bound_lp(c, A, k):
+def branch_and_bound_lp(c, A, k, nonints_first=False):
     sort_idx, c, A_csr, A_csc = presolve(c, A)
     lpsolver = LPSolver(c, A_csc)
     root_ties = np.repeat(-1, c.size).astype(np.int8)
@@ -251,21 +264,20 @@ def branch_and_bound_lp(c, A, k):
     nonint_count = np.repeat(0, c.size)
 
     while len(test_sol_heap) > 0:
-        #print(f"{i}:")
-        #print("\tto process: {} / {}".format(str(sum(1 if x.cost < worst_sol else 0 for x in test_sol_heap)), len(test_sol_heap)))
-        ##print("num nonintegral: " + str(np.sum(~np.isclose(x, 0.0) & ~np.isclose(x, 1.0))))
-        #print("\tbest sols num: " + str(len(best_sols)))
-        #print("\tworst sol: " + str(worst_sol))
-        ##print("tie count: " + str(np.sum(t != -1)))
-        #print("\tint locations: " + str(np.sum(nonint_count == 0)))
-
+        print(f"{i}:")
+        print("\tto process: {} / {}".format(str(sum(1 if x.cost < worst_sol else 0 for x in test_sol_heap)), len(test_sol_heap)))
+        #print("num nonintegral: " + str(np.sum(~np.isclose(x, 0.0) & ~np.isclose(x, 1.0))))
+        print("\tbest sols num: " + str(len(best_sols)))
+        print("\tworst sol: " + str(worst_sol))
+        #print("tie count: " + str(np.sum(t != -1)))
+        print("\tint locations: " + str(np.sum(nonint_count == 0)))
             
         solved_node = heapq.heappop(test_sol_heap)
 
         if len(best_sols) == k and solved_node.cost >= worst_sol:
             break
 
-        ties = solved_node.branch(A_csr)
+        ties = solved_node.branch(A_csr, nonints_first)
         if len(ties) == 0:
             continue;
 
@@ -290,8 +302,8 @@ def branch_and_bound_lp(c, A, k):
                 bisect.insort(best_sols, child)
                 worst_sol = best_sols[-1].cost
             heapq.heappush(test_sol_heap, child)
-        #print("\tprune count: {} / {}".format(str(prune_count), len(ties)))
-        #print("\tnonint children: {} / {}".format(str(num_nonint), len(ties)))
+        print("\tprune count: {} / {}".format(str(prune_count), len(ties)))
+        print("\tnonint children: {} / {}".format(str(num_nonint), len(ties)))
 
     # undo ordering of variables
     unsort_idx = np.argsort(sort_idx)
