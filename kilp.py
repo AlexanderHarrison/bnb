@@ -301,15 +301,22 @@ def solve_large(c, A, k):
 
             lb_iter = zip(ties, lb)
 
+            # the number of children currently being processed
+            # only zero initially and when there are no more children to process
             children_left = 0
+
+            # fill queue
             try:
                 for _ in range(multiprocessing.cpu_count()):
-                    t, _ = next(lb_iter)
+                    t, lb = next(lb_iter)
+                    while len(best_sols) == k and lb >= worst_sol:
+                        t, lb = next(lb_iter)
                     tie_q.put(t)
                     children_left += 1
             except StopIteration:
                 pass
                 
+            # push a new child for each solved child popped
             while children_left != 0:
                 child = child_q.get()
                 children_left -= 1
@@ -408,7 +415,7 @@ def main():
     #cProfile.runctx('sols = solve(c, A, 3)', globals(), locals(), sort=True, filename="data.txt")
 
     t = time.time()
-    sols = solve(c, A, 2)
+    sols = solve(c, A, 100)
     for s in sols:
         print(s.solution_cost())
     print(str(time.time() - t))
