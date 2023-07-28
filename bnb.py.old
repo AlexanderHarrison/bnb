@@ -20,6 +20,111 @@ import scipy.sparse
 # and there are no unsolved nodes with upper bounds greater than the worst integral solution,
 # we are done!
 
+    def branch(self, A, nonints_first = False):
+        x_ceil = np.ceil(self.x)
+        num_vars = self.x.size
+
+        zero_mask = np.isclose(self.x, 0.0)
+        set_mask = np.isclose(self.x, 1.0)
+
+        untied_mask = self.ties == -1
+        tie_mask = untied_mask & ~zero_mask
+        #print("branch count: " + str(np.sum(tie_mask)))
+        
+        if nonints_first:
+            ordering = np.concatenate((
+                np.where(untied_mask & ~(set_mask | zero_mask)), # nonints
+                np.where(untied_mask & set_mask), # ones
+                np.where(zero_mask | (~untied_mask & set_mask)) # rest
+            ), axis=1)[0]
+            rev_ordering = np.argsort(ordering)
+            tie_mask = tie_mask[ordering]
+            x_ceil = x_ceil[ordering]
+            ties = self.ties[ordering]
+        else:
+            ties = self.ties
+
+        #untied_set_mask = untied_mask & set_mask
+        #untied_noninteger_mask = tie_mask & ~set_mask
+
+        # exercise for the reader
+        tie_mask_matrix = np.identity(num_vars, dtype=np.uint8)[tie_mask]
+        invert_mask_matrix = np.tri(num_vars, k=-1, dtype=np.uint8)[tie_mask] & tie_mask
+        child_ties = invert_mask_matrix*(1+x_ceil) + tie_mask_matrix*(2-x_ceil) + ties
+
+        if nonints_first:
+            child_ties = child_ties[:, rev_ordering]
+
+        child_ties = filter_invalid(A, child_ties)
+        return child_ties
+def branch_and_bound_lp(c, A, k, nonints_first=False):
+    sort_idx, c, A_csr, A_csc = presolve(c, A)
+    lpsolver = LPSolver(c, A_csc)
+    root_ties = np.repeat(-1, c.size).astype(np.int8)
+    root_x, root_cost = lpsolver.solve_int(root_ties)
+    root_node = Node(root_x, root_cost, root_ties)
+
+    if root_node.integral():
+        best_sols = [root_node]
+        worst_sol = root_node.cost
+    else:
+        best_sols = []
+        worst_sol = 1.0
+    test_sol_heap = [root_node]
+    i = 1
+
+    nonint_count = np.repeat(0, c.size)
+
+    while len(test_sol_heap) > 0:
+        print(f"{i}:")
+        print("\tto process: {} / {}".format(str(sum(1 if x.cost < worst_sol else 0 for x in test_sol_heap)), len(test_sol_heap)))
+        #print("num nonintegral: " + str(np.sum(~np.isclose(x, 0.0) & ~np.isclose(x, 1.0))))
+        print("\tbest sols num: " + str(len(best_sols)))
+        print("\tworst sol: " + str(worst_sol))
+        #print("tie count: " + str(np.sum(t != -1)))
+        print("\tint locations: " + str(np.sum(nonint_count == 0)))
+        
+        solved_node = heapq.heappop(test_sol_heap)
+
+        if len(best_sols) == k and solved_node.cost >= worst_sol:
+            break
+
+        ties = solved_node.branch(A_csr, nonints_first)
+        if len(ties) == 0:
+            continue;
+
+        prune_count = 0
+        num_nonint = 0
+        for t in ties:
+            x, cost, _ = lpsolver.solve(t)
+
+            nonint = ~(np.isclose(x, 0.0) | np.isclose(x, 1.0))
+            nonint_count += nonint
+            if np.any(nonint != 0.0):
+                num_nonint += 1
+            i += 1
+            child = Node(x, cost, t)
+            if len(best_sols) == k and cost >= worst_sol:
+                prune_count += 1
+                continue
+
+            if child.integral():
+                if len(best_sols) == k:
+                    best_sols.pop()
+                bisect.insort(best_sols, child)
+                worst_sol = best_sols[-1].cost
+            heapq.heappush(test_sol_heap, child)
+        print("\tprune count: {} / {}".format(str(prune_count), len(ties)))
+        print("\tnonint children: {} / {}".format(str(num_nonint), len(ties)))
+
+    # undo ordering of variables
+    unsort_idx = np.argsort(sort_idx)
+    for s in best_sols:
+        s.reorder(unsort_idx)
+
+    #print(f"Iterations: {i}")
+    return best_sols
+    
 class Node:
     def __init__(self, x, cost, ties):
         self.x = x
