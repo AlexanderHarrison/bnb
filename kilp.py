@@ -8,7 +8,7 @@ import numpy as np
 import highspy
 import scipy.sparse
 
-def solve(c, A, k):
+def solve(c, A, k, log=True):
     """Solve for the `k` best integer solutions to the linear optimization problem of the form:
 
     minimize dot(c, x)
@@ -27,7 +27,7 @@ def solve(c, A, k):
     if c.size < 800:
         return solve_small(c, A, k)
     else:
-        return solve_large(c, A, k)
+        return solve_large(c, A, k, log=log)
 
 
 class Node:
@@ -232,7 +232,7 @@ def init_sync_objects(c, A_csc):
 def reduce_constraints(c, A):
     """Simplify and reorder columns on `c` and `A`."""
     # remove constraints with 1 or less nonzero elements
-    # weird behavior on sparse matrices
+    # weird behavior on sparse matrices, this work on both
     A = A[np.array((A.sum(axis=1) > 1).flat)]
     # sort costs from smallest to largest
     # murty constrains the first columns more than the last, 
@@ -261,7 +261,7 @@ def reduce_constraints(c, A):
     return (sort_idx, c, A_csr, A_csc)
 
 
-def solve_large(c, A, k):
+def solve_large(c, A, k, log=True):
     """Requires thread start method of 'spawn'. May deadlock on 'fork'.
     Use `multiprocessing.set_start_method("spawn")` to set.
 
@@ -282,6 +282,7 @@ def solve_large(c, A, k):
 
     (tie_q, child_q, threads, lb_pool) = init_sync_objects(c, A_csc)
 
+    i = 1
     try: 
         while len(test_sol_heap) > 0:
             solved_node = heapq.heappop(test_sol_heap)
@@ -292,6 +293,12 @@ def solve_large(c, A, k):
             ties = solved_node.branch(A_csr)
             if len(ties) == 0:
                 continue;
+
+            if log:
+                print(f"Iteration {i}:")
+                print("\tsolutions to process: {}".format(str(1+sum(1 if x.cost < worst_sol else 0 for x in test_sol_heap))))
+                print("\tsolution lower bound: " + str(worst_sol))
+            i += 1
 
             lb = np.array(lb_pool.map(solve_lp, ties))
 
@@ -336,11 +343,11 @@ def solve_large(c, A, k):
                     bisect.insort(best_sols, child)
                     worst_sol = best_sols[-1].cost
                 heapq.heappush(test_sol_heap, child)
-    except KeyboardInterrupt:
+    except Exception as e:
         for t in threads:
             t.terminate()
         lb_pool.terminate()
-        raise KeyboardInterrupt
+        raise e
 
     for t in threads:
         t.terminate()
@@ -415,7 +422,7 @@ def main():
     #cProfile.runctx('sols = solve(c, A, 3)', globals(), locals(), sort=True, filename="data.txt")
 
     t = time.time()
-    sols = solve(c, A, 100)
+    sols = solve(c, A, 10)
     for s in sols:
         print(s.solution_cost())
     print(str(time.time() - t))
